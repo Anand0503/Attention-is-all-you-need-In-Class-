@@ -1,6 +1,6 @@
 # Attention-is-all-you-need-In-Class-
 
-# 🎓 Classroom Attention Monitoring System
+## 🎓 Classroom Attention Monitoring System
 
 A Computer Vision-based system for analyzing student attention in classroom videos using face detection, tracking, and head pose estimation.
 
@@ -24,7 +24,7 @@ This project processes a classroom video, tracks students, evaluates attention b
 
 ## 🏗 Project Structure
 
-
+```
 classroom_attention/
 │
 ├── app/
@@ -44,13 +44,13 @@ classroom_attention/
 ├── run.py
 ├── requirements.txt
 └── README.md
-
+```
 
 ---
 
 ## 🧠 System Architecture
 
-
+```
 Video Input
 ↓
 Face Detection (MediaPipe)
@@ -64,95 +64,109 @@ Attention Scoring
 Per-Student Statistics
 ↓
 CSV Report Generation
-
+```
 
 ---
 
 ## 📦 Installation
 
 ### 1️⃣ Clone the Repository
-
+```
 git clone <your-repository-url>
 cd classroom_attention
-2️⃣ Create Virtual Environment
+```
+### 2️⃣ Create Virtual Environment
+```
 python3 -m venv venv
 source venv/bin/activate
-3️⃣ Install Dependencies
-pip install -r requirements.txt
+```
+### 3️⃣ Install Dependencies
+```pip install -r requirements.txt```
 
 Or manually:
 
-pip install ultralytics deep-sort-realtime mediapipe tqdm numpy opencv-python
-▶️ Running the Project
+```pip install ultralytics deep-sort-realtime mediapipe tqdm numpy opencv-python```
+### ▶️ Running the Project
 
 Place your classroom video in the root folder as:
 
-input.mp4
+```input.mp4```
 
 Run the system:
 
-python run.py
-📤 Output Files
+```python run.py```
+
+### 📤 Output Files
 
 After processing completes:
-
+```
 outputs/output.avi
 outputs/attention_results.csv
-📊 CSV Output Format
+```
+### 📊 CSV Output Format
 
 The CSV file contains per-student analytics:
-
+```
 Student_ID,
 Total_Frames,
 Attentive_Frames,
 HandRaise_Frames,
 Distracted_Frames,
 Attention_Percentage
-Example Output
+```
+#### Example Output
+```
 2,252,110,114,28,43.65
 3,3057,195,2622,240,6.38
-📈 Attention Calculation Logic
+```
+
+## 📈 Attention Calculation Logic
 
 For each tracked student:
 
-+1 → Looking forward
+### +1 → Looking forward
 
-+1 → Hand raised (if enabled)
+### +1 → Hand raised (if enabled)
 
--2 → Using phone (if enabled)
+### -2 → Using phone (if enabled)
 
 Final attention percentage:
 
+```
 (attentive_frames / total_frames) × 100
+```
 
 Short-lived tracks are filtered to avoid false student counts.
 
-⚡ Performance Notes
+## ⚡ Performance Notes
 
-Pose estimation runs every 5 frames (CPU optimization)
+- Pose estimation runs every 5 frames (CPU optimization)
 
-DeepSORT parameters tuned for classroom stability
+- DeepSORT parameters tuned for classroom stability
 
-Face detection reduces false positives
+- Face detection reduces false positives
 
-Tracking IDs are stable within a single video
+- Tracking IDs are stable within a single video
 
-🛠 Technologies Used
+---
 
-Python 3.10
+## 🛠 Technologies Used
 
-OpenCV
+- Python 3.10
 
-MediaPipe
+- OpenCV
 
-DeepSORT
+- MediaPipe
 
-YOLO (optional)
+- DeepSORT
 
-NumPy
+- YOLO (optional)
 
-tqdm
+- NumPy
 
+- tqdm
+
+---
 🔮 Future Improvements
 
 Real-time webcam version
@@ -167,10 +181,7 @@ Docker containerization
 
 Classroom-level attention analytics dashboard
 
-👨‍💻 Author
-
-Anand Pandey
-IIIT Delhi
+---
 
 📜 License
 
@@ -179,13 +190,3 @@ This project is developed for academic and research purposes.
 
 ---
 
-If you want, I can now:
-
-- Add GitHub badges
-- Add screenshots section
-- Add demo GIF section
-- Make it resume-ready
-- Make it research-paper style
-- Generate a project report PDF
-
-Tell me where you're planning to upload it.
