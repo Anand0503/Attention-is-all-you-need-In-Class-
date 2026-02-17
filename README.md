@@ -167,25 +167,25 @@ Short-lived tracks are filtered to avoid false student counts.
 - tqdm
 
 ---
-🔮 Future Improvements
+## 🔮 Future Improvements
 
-Real-time webcam version
+- Real-time webcam version
 
-Web dashboard for visualization
+- Web dashboard for visualization
 
-Face recognition for persistent IDs across sessions
+- Face recognition for persistent IDs across sessions
 
-FastAPI deployment
+- FastAPI deployment
 
-Docker containerization
+- Docker containerization
 
-Classroom-level attention analytics dashboard
+- Classroom-level attention analytics dashboard
 
 ---
 
-📜 License
+## 📜 License
 
-This project is developed for academic and research purposes.
+- This project is developed for academic and research purposes.
 
 
 ---
