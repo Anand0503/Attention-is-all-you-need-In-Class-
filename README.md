@@ -72,7 +72,6 @@ CSV Report Generation
 
 ### 1️⃣ Clone the Repository
 
-```bash
 git clone <your-repository-url>
 cd classroom_attention
 2️⃣ Create Virtual Environment
