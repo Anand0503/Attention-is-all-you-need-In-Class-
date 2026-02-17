@@ -1,0 +1,10 @@
+ultralytics
+opencv-python
+numpy
+deep-sort-realtime
+mediapipe
+torch
+fastapi
+uvicorn
+tqdm
+mediapipe==0.10.9
