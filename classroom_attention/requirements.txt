@@ -1,10 +1,11 @@
-ultralytics
+ultralytics>=8.3.0
 opencv-python
 numpy
 deep-sort-realtime
-mediapipe
 torch
+torchvision
 fastapi
 uvicorn
 tqdm
-mediapipe==0.10.9
+pyyaml
+scikit-learn
