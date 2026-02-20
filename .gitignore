@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Model weights
+*.pt
+*.pth
+*.tflite
+*.task
+*.onnx
+
+# Data & outputs
+classroom_attention/data/
+classroom_attention/outputs/
+classroom_attention/input.mp4
+classroom_attention/pipeline.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Virtual environments
+venv/
+.env/
+env/
