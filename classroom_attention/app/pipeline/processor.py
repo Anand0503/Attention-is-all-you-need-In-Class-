@@ -231,7 +231,8 @@ class ClassroomProcessor:
         # 3. Update tracker
         tracks = self.tracker.update(tracker_dets, frame)
 
-        # 4. Process each confirmed track
+        # 4. Collect all confirmed tracks first (for batch pose)
+        confirmed_tracks = []
         for track in tracks:
             if not track.is_confirmed():
                 continue
@@ -240,12 +241,11 @@ class ClassroomProcessor:
             l, t, r, b = track.to_ltrb()
             person_bbox = [l, t, r, b]
 
-            # Compute detection confidence for this track
             det_conf = self._get_track_detection_confidence(
                 person_bbox, detections
             )
 
-            # 5. Identity matching (extract embedding once per track)
+            # Identity matching (once per track)
             if track_id not in self._embedding_extracted:
                 embedding = self.face_detector.extract_embedding(
                     frame, person_bbox
@@ -260,24 +260,43 @@ class ClassroomProcessor:
                     track_id
                 )
 
-            # 6. Attendance update
+            # Attendance update
             self.attendance_manager.update(
                 global_id, track_id, frame_idx, fps
             )
 
-            # 7. Pose analysis (with frame skip for performance)
-            if frame_idx % self.pose_skip == 0:
-                pose_result = self.pose_analyzer.analyze(frame, person_bbox)
-                self._pose_cache[track_id] = pose_result
-            else:
-                pose_result = self._pose_cache.get(track_id, {
-                    "hand_raised": False,
-                    "head_forward": False,
-                    "using_phone": False,
-                    "pose_confidence": 0.0,
-                })
+            confirmed_tracks.append({
+                "track_id": track_id,
+                "bbox": person_bbox,
+                "det_conf": det_conf,
+                "global_id": global_id,
+            })
 
-            # 8. Attention scoring
+        # 5. Batch pose analysis — ONE YOLO inference for ALL persons
+        if frame_idx % self.pose_skip == 0 and confirmed_tracks:
+            pose_results = self.pose_analyzer.analyze_batch(
+                frame,
+                [{"track_id": t["track_id"], "bbox": t["bbox"]}
+                 for t in confirmed_tracks],
+            )
+            # Update cache
+            for tid, result in pose_results.items():
+                self._pose_cache[tid] = result
+
+        # 6. Attention scoring + annotation for each person
+        for info in confirmed_tracks:
+            track_id = info["track_id"]
+            person_bbox = info["bbox"]
+            global_id = info["global_id"]
+            det_conf = info["det_conf"]
+
+            pose_result = self._pose_cache.get(track_id, {
+                "hand_raised": False,
+                "head_forward": False,
+                "using_phone": False,
+                "pose_confidence": 0.0,
+            })
+
             signals = {
                 "hand_raised": pose_result["hand_raised"],
                 "head_forward": pose_result["head_forward"],
@@ -287,7 +306,6 @@ class ClassroomProcessor:
             }
             attention_status = self.attention_engine.update(global_id, signals)
 
-            # 9. Draw annotations
             frame = self._draw_annotations(
                 frame, person_bbox, track_id, global_id,
                 attention_status, pose_result, det_conf

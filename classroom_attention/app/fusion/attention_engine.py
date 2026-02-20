@@ -1,9 +1,14 @@
 """
-Confidence-Weighted Attention Engine.
+Confidence-Weighted Attention Engine with Hysteresis.
 
 Computes attention scores per student using detection and pose confidences
-as weights, with rolling window smoothing. Tracks per-student frame counters
-for attentive, distracted, hand-raise, and phone-usage states.
+as weights, with EMA (Exponential Moving Average) smoothing and hysteresis
+to prevent rapid state flickering.
+
+Key anti-flicker mechanisms:
+    1. EMA smoothing (alpha=0.15) instead of simple rolling average
+    2. Hysteresis thresholds (different thresholds for entering vs leaving a state)
+    3. Minimum state hold (a student must stay in a state for N frames before switching)
 """
 
 import logging
@@ -16,19 +21,23 @@ logger = logging.getLogger(__name__)
 
 class AttentionEngine:
     """
-    Confidence-weighted attention scoring with rolling window smoothing.
+    Confidence-weighted attention scoring with EMA smoothing and hysteresis.
 
-    Scoring formula:
-        - Looking forward:  +weight × pose_confidence
-        - Hand raised:      +weight × detection_confidence
-        - Distracted:       +weight × pose_confidence  (negative weight)
-        - Using phone:      +weight × detection_confidence (negative weight)
+    Anti-flicker design:
+        - EMA smoothing (α=0.15) gives more weight to recent frames while
+          dampening single-frame noise.
+        - Hysteresis: A student classified as "attentive" stays attentive until
+          their score drops below a LOWER threshold (not the same threshold).
+        - Minimum hold: State must persist for at least N consecutive frames
+          before the counters are incremented, preventing brief flickers from
+          polluting the data.
 
     Attributes:
-        smoothing_window: Number of recent scores to average.
-        confidence_weighted: Whether to use confidence weighting.
+        ema_alpha: EMA smoothing factor (higher = more responsive, lower = smoother).
         weights: Dict of behavior weights.
-        history: Per-student rolling score history.
+        ema_scores: Per-student EMA-smoothed score.
+        current_state: Per-student current attention state (with hysteresis).
+        state_hold_counter: Frames the student has been in the candidate state.
         counters: Per-student frame counters.
     """
 
@@ -42,8 +51,25 @@ class AttentionEngine:
         config = config or {}
         att_cfg = config.get("attention", {})
 
-        self.smoothing_window = att_cfg.get("smoothing_window", 10)
         self.confidence_weighted = att_cfg.get("confidence_weighted", True)
+
+        # EMA smoothing factor — lower = smoother, higher = more responsive
+        # 0.08 is very smooth — takes ~12 frames to converge
+        self.ema_alpha = att_cfg.get("ema_alpha", 0.08)
+
+        # Hysteresis thresholds: different thresholds for entering vs leaving
+        # A student becomes "attentive" when score > enter_attentive (0.2)
+        # A student stays "attentive" until score < exit_attentive (0.0)
+        # A student becomes "distracted" when score < enter_distracted (-0.2)
+        # A student stays "distracted" until score > exit_distracted (0.0)
+        self.enter_attentive = att_cfg.get("enter_attentive", 0.2)
+        self.exit_attentive = att_cfg.get("exit_attentive", 0.0)
+        self.enter_distracted = att_cfg.get("enter_distracted", -0.2)
+        self.exit_distracted = att_cfg.get("exit_distracted", 0.0)
+
+        # Minimum consecutive frames in a state before counters are updated
+        # 15 frames ≈ ~1 second of consistent state needed to transition
+        self.min_state_hold = att_cfg.get("min_state_hold", 15)
 
         default_weights = {
             "looking_forward": 1.0,
@@ -53,8 +79,17 @@ class AttentionEngine:
         }
         self.weights = att_cfg.get("weights", default_weights)
 
-        # Per-student score history for smoothing
-        self.history: dict[str, list[float]] = defaultdict(list)
+        # Per-student EMA-smoothed attention score
+        self.ema_scores: dict[str, float] = {}
+
+        # Per-student current confirmed state (after hysteresis)
+        self.current_state: dict[str, str] = {}
+
+        # Per-student: how many consecutive frames the candidate state has held
+        self.state_hold_counter: dict[str, int] = defaultdict(int)
+
+        # Per-student: the candidate state being tested
+        self.candidate_state: dict[str, str] = {}
 
         # Per-student frame counters
         self.counters: dict[str, dict] = defaultdict(lambda: {
@@ -69,6 +104,8 @@ class AttentionEngine:
     def update(self, person_id: str, signals: dict) -> str:
         """
         Update attention score for a person based on behavior signals.
+
+        Uses EMA smoothing + hysteresis for stable state classification.
 
         Args:
             person_id: Global student ID.
@@ -88,56 +125,106 @@ class AttentionEngine:
         pose_conf = signals.get("pose_confidence", 0.5)
         det_conf = signals.get("detection_confidence", 0.5)
 
-        score = 0.0
         counters = self.counters[person_id]
         counters["total_frames"] += 1
 
+        # --- Compute raw score for this frame ---
+        score = 0.0
+
         if self.confidence_weighted:
-            # Confidence-weighted scoring
             if hand_raised:
                 score += self.weights["hand_raised"] * det_conf
-                counters["handraise_frames"] += 1
             if head_forward and not using_phone:
                 score += self.weights["looking_forward"] * pose_conf
-                counters["attentive_frames"] += 1
             if using_phone:
                 score += self.weights["using_phone"] * det_conf
-                counters["using_phone_frames"] += 1
             if not head_forward and not hand_raised and not using_phone:
                 score += self.weights["distracted"] * pose_conf
-                counters["distracted_frames"] += 1
         else:
-            # Simple binary scoring (legacy fallback)
             if hand_raised:
                 score += 2.0
-                counters["handraise_frames"] += 1
             if head_forward:
                 score += 1.0
-                counters["attentive_frames"] += 1
             if using_phone:
                 score -= 2.0
-                counters["using_phone_frames"] += 1
             if not head_forward and not hand_raised:
                 score -= 1.0
-                counters["distracted_frames"] += 1
 
         counters["cumulative_weighted_score"] += score
 
-        # Rolling window smoothing
-        self.history[person_id].append(score)
-        if len(self.history[person_id]) > self.smoothing_window:
-            self.history[person_id] = self.history[person_id][
-                -self.smoothing_window:
-            ]
-
-        avg_score = float(np.mean(self.history[person_id]))
-
-        if avg_score > 0.3:
-            return "attentive"
-        elif avg_score < -0.3:
-            return "distracted"
+        # --- EMA smoothing ---
+        if person_id not in self.ema_scores:
+            self.ema_scores[person_id] = score
         else:
-            return "neutral"
+            self.ema_scores[person_id] = (
+                self.ema_alpha * score +
+                (1 - self.ema_alpha) * self.ema_scores[person_id]
+            )
+
+        ema_score = self.ema_scores[person_id]
+
+        # --- Hysteresis state classification ---
+        # Default initial state is "attentive" (student in class = likely paying attention)
+        prev_state = self.current_state.get(person_id, "attentive")
+
+        # Determine the raw candidate state from score.
+        # KEY DESIGN: No "neutral" oscillation — when score is in the dead zone,
+        # we KEEP the previous state. This eliminates attentive↔neutral flicker.
+        if prev_state == "attentive":
+            # Already attentive — only leave if score drops significantly
+            if ema_score < self.enter_distracted:
+                raw_state = "distracted"
+            else:
+                # Stay attentive (even in neutral zone)
+                raw_state = "attentive"
+        elif prev_state == "distracted":
+            # Already distracted — only leave if score rises significantly
+            if ema_score > self.enter_attentive:
+                raw_state = "attentive"
+            else:
+                # Stay distracted (even in neutral zone)
+                raw_state = "distracted"
+        else:
+            # First frame or truly neutral — classify based on score
+            if ema_score > self.enter_attentive:
+                raw_state = "attentive"
+            elif ema_score < self.enter_distracted:
+                raw_state = "distracted"
+            else:
+                # Default to attentive (student is in class)
+                raw_state = "attentive"
+
+        # --- Minimum hold: require N consecutive frames in the candidate state ---
+        prev_candidate = self.candidate_state.get(person_id, prev_state)
+
+        if raw_state == prev_candidate:
+            self.state_hold_counter[person_id] += 1
+        else:
+            # New candidate state — reset counter
+            self.candidate_state[person_id] = raw_state
+            self.state_hold_counter[person_id] = 1
+
+        # Only transition if held for min_state_hold frames
+        if (raw_state != prev_state and
+                self.state_hold_counter[person_id] >= self.min_state_hold):
+            confirmed_state = raw_state
+            self.current_state[person_id] = confirmed_state
+        else:
+            confirmed_state = prev_state
+            self.current_state[person_id] = confirmed_state
+
+        # --- Update counters based on confirmed stable state ---
+        if hand_raised:
+            counters["handraise_frames"] += 1
+        if using_phone:
+            counters["using_phone_frames"] += 1
+
+        if confirmed_state == "attentive":
+            counters["attentive_frames"] += 1
+        elif confirmed_state == "distracted":
+            counters["distracted_frames"] += 1
+
+        return confirmed_state
 
     def get_student_metrics(self, person_id: str) -> dict:
         """
@@ -179,7 +266,10 @@ class AttentionEngine:
         return {pid: self.get_student_metrics(pid) for pid in self.counters}
 
     def reset(self):
-        """Reset all histories and counters."""
-        self.history.clear()
+        """Reset all state."""
+        self.ema_scores.clear()
+        self.current_state.clear()
+        self.state_hold_counter.clear()
+        self.candidate_state.clear()
         self.counters.clear()
         logger.info("AttentionEngine state reset.")
